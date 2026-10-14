@@ -36,6 +36,10 @@ const makeCore = ($: any): Core => async (tool, args) => {
       if (server) break
     }
   }
+  if (/no connected MCP tool/.test(String((last as Error)?.message ?? last)))
+    throw new Error(
+      'the readroid plugin is not running. Install it: /plugin marketplace add <path to this repo>, then /plugin install readroid@readroid',
+    )
   throw last
 }
 
