@@ -1,0 +1,6 @@
+{
+  "name": "readroid-ui",
+  "version": "0.1.0",
+  "description": "READroid pane: browse the sample catalog, scan APKs and read verdicts. Needs the readroid plugin.",
+  "types": "./types/index.d.ts"
+}
