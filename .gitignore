@@ -1,0 +1,18 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# live malware and large artifacts: never commit
+*.apk
+*.apks
+*.xapk
+*.zip
+*.jar
+samples/
+.readroid/
+
+# tooling
+node_modules/
+dist-tmp/
+.claude/settings.local.json

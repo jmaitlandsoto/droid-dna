@@ -1,0 +1,5 @@
+{
+  "name": "readroid",
+  "version": "0.1.0",
+  "description": "Evidence-backed APK malware triage: cheap static checks first, Claude investigates what they cannot clear, through the REA MCP server."
+}
