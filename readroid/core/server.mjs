@@ -12,6 +12,8 @@ import { SAMPLES, REPORTS } from '../lib/paths.mjs'
 import { readAesZip } from '../lib/aeszip.mjs'
 import { loadCatalog, saveCatalog, upsertApk, writeScan, listScans, nextScanId } from '../lib/catalog.mjs'
 import { reaInspectPackage, tier1 } from '../lib/triage.mjs'
+import { inspectApk } from '../lib/native.mjs'
+import { baseline, checkResolution, openItems, capConfidence, summarize, BLOCKERS, MAX_ROUND, MAX_ITEMS } from '../lib/ledger.mjs'
 
 loadEnvFile()
 const SHA = /^[0-9a-f]{64}$/
@@ -58,6 +60,21 @@ async function withApk(sha, e, fn) {
   } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
+
+function latestScan(sha) {
+  entryOrThrow(loadCatalog(), sha)
+  const scan = listScans(sha)[0]
+  if (!scan) throw new Error('No scan for this sample; run scan_triage first')
+  return scan
+}
+
+// Compact by default: a full ledger runs to 100 KB, which agents cannot read. Evidence comes one item at a time.
+function ledgerView(scan, full = false) {
+  const { items, dropped } = scan.ledger
+  const row = i => (full ? i : { id: i.id, kind: i.kind, round: i.round, parent: i.parent, title: i.title, status: i.status, blocker: i.blocker, mergedInto: i.mergedInto, answer: i.answer?.slice(0, 280), evidenceCount: i.evidence?.length })
+  return { scanId: scan.id, ...summarize(scan.ledger), maxRound: MAX_ROUND, openIds: openItems(scan.ledger).map(i => i.id), items: items.map(row), dropped }
+}
+
 const opened = new Map() // sha256 -> temp dir
 
 function closeAll() { for (const d of opened.values()) rmSync(d, { recursive: true, force: true }); opened.clear() }
@@ -67,12 +84,13 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => process.exit(0))
 const TOOLS = {
   catalog_search: {
     description: 'Search the local sample catalog by package name or sha256 prefix, optionally by label.',
-    inputSchema: { type: 'object', properties: { query: { type: 'string' }, label: { type: 'string', enum: ['malicious', 'proxyware', 'pup', 'benign'] }, limit: { type: 'integer' } } },
-    async run({ query = '', label, limit = 25 }) {
+    inputSchema: { type: 'object', properties: { query: { type: 'string' }, label: { type: 'string', enum: ['malicious', 'proxyware', 'pup', 'benign'] }, artifact: { type: 'string', description: 'sha256 (or prefix) of a native lib or embedded file; finds samples that ship it' }, limit: { type: 'integer' } } },
+    async run({ query = '', label, artifact, limit = 25 }) {
       const q = query.toLowerCase()
       const rows = Object.entries(loadCatalog().apks)
         .filter(([sha, e]) => (!q || sha.startsWith(q) || (e.pkg ?? '').toLowerCase().includes(q) || (e.name ?? '').toLowerCase().includes(q))
-          && (!label || e.labels.some(l => l.label === label)))
+          && (!label || e.labels.some(l => l.label === label))
+          && (!artifact || (e.artifactHashes ?? []).some(h => h.startsWith(artifact.toLowerCase()))))
         .slice(0, limit)
         .map(([sha256, e]) => ({ sha256, pkg: e.pkg, name: e.name, sizeBytes: e.sizeBytes, onDisk: !!e.localPath, labels: e.labels.map(l => `${l.label}${l.family ? ':' + l.family : ''}`), sources: e.sources.map(s => s.source) }))
       return { count: rows.length, results: rows }
@@ -159,8 +177,20 @@ const TOOLS = {
       return { sha256: sha, deleted: !!dir }
     },
   },
+  sample_inspect_native: {
+    description: 'Metadata only, nothing is extracted or run: hashes, kinds and ELF packing signals for the native libraries (lib/), raw resources, assets and extra dex files inside a sample. Use it to see what payloads ship with the app and whether they are packed. Records hashes so catalog_search can find samples sharing a payload.',
+    inputSchema: { type: 'object', properties: { sha256: { type: 'string' } }, required: ['sha256'] },
+    async run({ sha256: sha }) {
+      const native = await withApk(sha, entryOrThrow(loadCatalog(), sha), async p => inspectApk(readFileSync(p)))
+      const c = loadCatalog() // reload: another call may have written the catalog while we worked
+      upsertApk(c, sha, { artifactHashes: native.artifactHashes })
+      saveCatalog(c)
+      const { artifactHashes, ...out } = native
+      return out
+    },
+  },
   scan_triage: {
-    description: 'Run tier 0 (identity) and tier 1 (static rules via REA) on a catalogued sample. Returns a summary and whether to escalate to the apk-analyst. Full report is written to disk.',
+    description: 'Run tier 0 (identity) and tier 1 (static rules via REA) on a catalogued sample. Returns a summary and whether to escalate to deep analysis (the investigation ledger). Full report is written to disk.',
     inputSchema: { type: 'object', properties: { sha256: { type: 'string' } }, required: ['sha256'] },
     async run({ sha256: sha }) {
       const c = loadCatalog()
@@ -168,13 +198,14 @@ const TOOLS = {
       const scan = { id: nextScanId(sha), sha256: sha, stage: 'triage', startedAt: new Date().toISOString(), pipelineVersion: '0.1.0', model: null }
       writeScan(scan)
       try {
-        const result = await withApk(sha, e, p => reaInspectPackage(p))
-        const t1 = tier1(result)
+        const { result, native } = await withApk(sha, e, async p => ({ result: await reaInspectPackage(p), native: inspectApk(readFileSync(p)) }))
+        const t1 = tier1(result, native)
         mkdirSync(REPORTS, { recursive: true, mode: 0o700 })
         const reportPath = join(REPORTS, `${sha}.${scan.id}.json`)
-        writeFileSync(reportPath, JSON.stringify({ tier1: t1, rea: result.normalized_result }, null, 1), { mode: 0o600 })
-        upsertApk(c, sha, { pkg: t1.package, versionName: t1.versionName })
-        saveCatalog(c)
+        writeFileSync(reportPath, JSON.stringify({ tier1: t1, native, rea: result.normalized_result }, null, 1), { mode: 0o600 })
+        const fresh = loadCatalog() // reload: another call may have written the catalog while we worked
+        upsertApk(fresh, sha, { pkg: t1.package, versionName: t1.versionName, artifactHashes: native.artifactHashes })
+        saveCatalog(fresh)
         Object.assign(scan, { reportPath, score: t1.score, escalate: t1.escalate, findings: t1.findings })
         if (t1.escalate) scan.stage = 'triaged'
         else Object.assign(scan, { stage: 'done', verdict: 'no_indicators', confidence: 0.5, finishedAt: new Date().toISOString(), summary: 'Static rules found nothing above the threshold. This is not a statement that the app is safe.', unknowns: ['Tier 1 static rules only; no code was reviewed.'] })
@@ -185,6 +216,95 @@ const TOOLS = {
         writeScan(scan)
         throw err
       }
+    },
+  },
+  ledger_init: {
+    description: 'Build the investigation checklist for the latest scan of a sample from the stored tier 1 report. Safe to call again: an existing ledger is returned unchanged. The checklist must be closed before scan_report accepts a verdict.',
+    inputSchema: { type: 'object', properties: { sha256: { type: 'string' } }, required: ['sha256'] },
+    async run({ sha256: sha }) {
+      const scan = latestScan(sha)
+      if (!scan.ledger) {
+        if (!scan.reportPath || !existsSync(scan.reportPath)) throw new Error('The scan has no tier 1 report; run scan_triage first')
+        scan.ledger = { createdAt: new Date().toISOString(), items: baseline(JSON.parse(readFileSync(scan.reportPath, 'utf8'))), dropped: [] }
+        writeScan(scan)
+      }
+      return ledgerView(scan)
+    },
+  },
+  ledger_get: {
+    description: 'Read the investigation checklist of the latest scan. Without id: a compact table of every item (status, blocker, the start of the answer). With id: that one item in full, with its evidence. full:true returns everything (very large).',
+    inputSchema: { type: 'object', properties: { sha256: { type: 'string' }, id: { type: 'string' }, full: { type: 'boolean' } }, required: ['sha256'] },
+    async run({ sha256: sha, id, full }) {
+      const scan = latestScan(sha)
+      if (!scan.ledger) throw new Error('No ledger yet; call ledger_init')
+      if (id) return scan.ledger.items.find(i => i.id === id) ?? (() => { throw new Error('Unknown item id') })()
+      return ledgerView(scan, !!full)
+    },
+  },
+  ledger_add: {
+    description: 'Planner only, before any item is resolved: add sample-specific items to the checklist. Each needs a title and a concrete question that names where to start.',
+    inputSchema: { type: 'object', required: ['sha256', 'items'], properties: { sha256: { type: 'string' }, items: { type: 'array', items: { type: 'object', required: ['title', 'question'], properties: { title: { type: 'string' }, question: { type: 'string' } } } } } },
+    async run({ sha256: sha, items }) {
+      const scan = latestScan(sha)
+      if (!scan.ledger) throw new Error('No ledger yet; call ledger_init')
+      if (scan.ledger.items.some(i => i.status !== 'open')) throw new Error('Investigation has started; new questions can only be added as leads when resolving an item')
+      if (!Array.isArray(items) || !items.length) throw new Error('items must be a non-empty array')
+      const added = []
+      for (const it of items) {
+        if (typeof it?.title !== 'string' || typeof it?.question !== 'string' || it.question.trim().length < 30) throw new Error('each item needs a title and a question of at least a sentence')
+        const n = scan.ledger.items.length
+        if (n >= MAX_ITEMS) { scan.ledger.dropped.push(`${it.title} (checklist full)`); continue }
+        const item = { id: `x-${n + 1}`, kind: 'planned', round: 0, title: it.title.slice(0, 120), question: it.question.slice(0, 1200), status: 'open' }
+        scan.ledger.items.push(item); added.push(item.id)
+      }
+      writeScan(scan)
+      return { added, ...summarize(scan.ledger) }
+    },
+  },
+  ledger_resolve: {
+    description: `Close one checklist item. The orchestrator may use status merged with mergedInto for a lead that another item already covers. status is confirmed or rejected (needs evidence entries with "where" and "what") or unresolved (needs a blocker: ${Object.keys(BLOCKERS).filter(b => b !== 'round_limit').join(', ')} and a detail). "I did not read it" is not a blocker. Put follow-up questions in leads.`,
+    inputSchema: { type: 'object', required: ['sha256', 'id', 'status', 'answer'], properties: {
+      sha256: { type: 'string' }, id: { type: 'string' }, status: { type: 'string', enum: ['confirmed', 'rejected', 'unresolved', 'merged'] },
+      answer: { type: 'string' }, mergedInto: { type: 'string', description: 'status merged only: id of the item that already covers this one' }, evidence: { type: 'array', items: { type: 'object', properties: { where: { type: 'string' }, what: { type: 'string' } } } },
+      blocker: { type: 'string', enum: Object.keys(BLOCKERS) }, detail: { type: 'string' },
+      endpoints: { type: 'array', items: { type: 'object' } },
+      leads: { type: 'array', items: { type: 'object', required: ['title', 'question'], properties: { title: { type: 'string' }, question: { type: 'string' } } } },
+    } },
+    async run(a) {
+      const scan = latestScan(a.sha256)
+      if (!scan.ledger) throw new Error('No ledger yet; call ledger_init')
+      const item = scan.ledger.items.find(i => i.id === a.id)
+      const err = checkResolution(item, a, scan.ledger.items)
+      if (err) throw new Error(err)
+      Object.assign(item, { status: a.status, answer: a.answer.slice(0, 3000), resolvedAt: new Date().toISOString() })
+      if (a.status === 'unresolved') Object.assign(item, { blocker: a.blocker, detail: a.detail.slice(0, 500) })
+      else if (a.status === 'merged') item.mergedInto = a.mergedInto
+      else item.evidence = a.evidence.slice(0, 20)
+      if (Array.isArray(a.endpoints) && a.endpoints.length) item.endpoints = a.endpoints.slice(0, 20)
+      const added = []
+      for (const l of Array.isArray(a.leads) ? a.leads : []) {
+        if (typeof l?.title !== 'string' || typeof l?.question !== 'string' || l.question.trim().length < 30) continue
+        const norm = t => t.toLowerCase().replace(/\W+/g, ' ').trim()
+        if (scan.ledger.items.some(i => norm(i.title) === norm(l.title))) continue
+        if (item.round + 1 > MAX_ROUND || scan.ledger.items.length >= MAX_ITEMS) { scan.ledger.dropped.push(`${l.title} (from ${item.id}; ${item.round + 1 > MAX_ROUND ? 'round limit' : 'checklist full'})`); continue }
+        const lead = { id: `l-${scan.ledger.items.length + 1}`, kind: 'lead', round: item.round + 1, parent: item.id, title: l.title.slice(0, 120), question: l.question.slice(0, 1200), status: 'open' }
+        scan.ledger.items.push(lead); added.push(lead.id)
+      }
+      writeScan(scan)
+      return { recorded: item.id, newLeads: added, ...summarize(scan.ledger) }
+    },
+  },
+  ledger_close_out: {
+    description: 'Orchestrator only: mark every still-open item unresolved with blocker round_limit, once the round limit is reached. Never use it to skip work that could still be done.',
+    inputSchema: { type: 'object', properties: { sha256: { type: 'string' } }, required: ['sha256'] },
+    async run({ sha256: sha }) {
+      const scan = latestScan(sha)
+      if (!scan.ledger) throw new Error('No ledger yet; call ledger_init')
+      const open = openItems(scan.ledger)
+      if (open.some(i => i.round < MAX_ROUND)) throw new Error(`Items below round ${MAX_ROUND} are still open (${open.filter(i => i.round < MAX_ROUND).map(i => i.id).join(', ')}); investigate them first`)
+      for (const i of open) Object.assign(i, { status: 'unresolved', blocker: 'round_limit', detail: 'Reached the last investigation round before this was started', answer: 'Not investigated: round limit reached', resolvedAt: new Date().toISOString() })
+      writeScan(scan)
+      return summarize(scan.ledger)
     },
   },
   scan_report: {
@@ -201,6 +321,7 @@ const TOOLS = {
           evidence: { type: 'array', items: { type: 'object' } } } } },
         endpoints: { type: 'array', items: { type: 'object' } },
         unknowns: { type: 'array', items: { type: 'string' } },
+        native: { type: 'array', items: { type: 'object' }, description: 'Native payloads examined: path, sha256, packed, what was learned' },
       },
     },
     async run(a) {
@@ -219,19 +340,32 @@ const TOOLS = {
         throw new Error('A "no_indicators" verdict with confidence above 0.9 must list what was not examined in unknowns')
       const scan = listScans(a.sha256)[0]
       if (!scan) throw new Error('No scan for this sample; run scan_triage first')
+      let confidence = a.confidence, capNote
+      const unknowns = [...(a.unknowns ?? [])]
+      if (scan.escalate) {
+        if (!scan.ledger) throw new Error('This scan was escalated, so it needs an investigation ledger. Call ledger_init, then investigate every item.')
+        const open = openItems(scan.ledger)
+        if (open.length) throw new Error(`${open.length} checklist items are still open: ${open.map(i => `${i.id} (${i.title})`).join('; ')}. Investigate or close each one before submitting a verdict.`)
+        const cap = capConfidence(a.verdict, a.confidence, scan.ledger, a.findings.filter(f => f.confirmed).length)
+        confidence = cap.confidence
+        if (cap.capped) capNote = `confidence lowered from ${a.confidence} to ${confidence}: ${cap.reasons.join('; ')}`
+        for (const i of scan.ledger.items.filter(x => x.status === 'unresolved')) unknowns.push(`${i.title}: ${i.blocker} - ${i.detail}`)
+        for (const d of scan.ledger.dropped) unknowns.push(`Lead not followed: ${d}`)
+      }
       Object.assign(scan, {
-        stage: 'done', verdict: a.verdict, confidence: a.confidence, categories: a.categories ?? [], summary: a.summary,
-        findings: a.findings, endpoints: a.endpoints ?? [], unknowns: a.unknowns ?? [], finishedAt: new Date().toISOString(), verdictBy: 'analyst',
+        stage: 'done', verdict: a.verdict, confidence, categories: a.categories ?? [], summary: a.summary,
+        findings: a.findings, endpoints: a.endpoints ?? [], unknowns, native: a.native ?? [], finishedAt: new Date().toISOString(), verdictBy: 'analyst',
+        ...(scan.ledger && { ledgerSummary: summarize(scan.ledger) }),
       })
       writeScan(scan)
-      return { recorded: true, scanId: scan.id, verdict: a.verdict }
+      return { recorded: true, scanId: scan.id, verdict: a.verdict, confidence, ...(capNote && { note: capNote }) }
     },
   },
   scan_list: {
     description: 'List scans (newest first), optionally for one sample.',
     inputSchema: { type: 'object', properties: { sha256: { type: 'string' } } },
     async run({ sha256: sha }) {
-      return listScans(sha).slice(0, 50).map(({ findings, ...s }) => ({ ...s, findingCount: findings?.length ?? 0 }))
+      return listScans(sha).slice(0, 50).map(({ findings, ledger, ...s }) => ({ ...s, findingCount: findings?.length ?? 0, ...(ledger && { ledger: summarize(ledger) }) }))
     },
   },
 }

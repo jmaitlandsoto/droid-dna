@@ -191,7 +191,7 @@ export const register: Register = on => {
                         $.ui.toast(`Deep analysis requested for ${short(s.sha256)}`)
                         void update($, notice, () => `Deep analysis requested for ${short(s.sha256)}; Claude is working in the main conversation.`)
                         void $.prompt.submit({
-                          text: `Run a deep READroid scan of ${s.sha256}. Follow the readroid:triage skill: call scan_triage for a fresh scan if the latest one is already done, then sample_open, spawn the readroid:apk-analyst agent with the sha256, the APK path and the tier 1 findings, call sample_close, and report the verdict from scan_list.`,
+                          text: `Run a deep READroid scan of ${s.sha256}. Follow the readroid:triage skill: call scan_triage for a fresh scan if the latest one is already done, then run its deep analysis (checklist, planner, parallel investigators, verdict agent), call sample_close, and report the verdict from scan_list.`,
                           asUser: true,
                         })
                       }} />

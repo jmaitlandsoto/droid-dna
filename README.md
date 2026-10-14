@@ -2,7 +2,7 @@
 
 APK malware triage for Claude Code. Cheap static checks run first; Claude investigates only what they cannot clear, using the [REA](https://www.npmjs.com/package/rea-agents) reverse-engineering MCP server. Verdicts are evidence-backed and say "no indicators found", never "safe".
 
-**Status: early development.** `/readroid:scan` works end to end on one platform (Linux x64): fetch or import, static triage, escalation to a read-only `apk-analyst` agent, and a structured verdict. See `READroid Design v2.md` for the plan.
+**Status: early development.** `/readroid:scan` works end to end on one platform (Linux x64): fetch or import, static triage, escalation to a team of read-only agents (a planner, parallel investigators and a verdict writer, working from a checklist the server enforces), and a structured verdict. See `READroid Design v2.md` for the plan.
 
 Commands: `/readroid:scan <sha256|path>`, `/readroid:search <text>`.
 
@@ -33,7 +33,7 @@ To fetch known-malware samples, put a free [abuse.ch](https://auth.abuse.ch/) ke
 ## Safety
 
 - Static analysis only. Nothing is installed or executed.
-- The analyst agent can use only read-only Android tools from REA, listed one by one. REA also exposes adb install, Frida and debugger tools, which the agent cannot call.
+- The agents can use only read-only Android tools from REA, listed one by one. REA also exposes adb install, Frida and debugger tools, which the agent cannot call.
 - Everything inside a sample is treated as data, never as instructions.
 - Samples stay in encrypted zips under `~/.readroid/samples/`. This repository never contains samples.
 

@@ -184,3 +184,14 @@ Goal: a user installs the plugin and it works, with no manual install of Java, J
 - MalwareBazaar returned `signature: None` for the newest APK entries, so labels for the benchmark should come from a tag query.
 - Verified: `readroid:apk-analyst`, run headlessly with the JDK and JAR env set, called `mcp__rea__inspect_android_package` and `mcp__rea__search_android_classes` on the malware sample with no denials. It reported SMS/contacts/boot capabilities and a provisional "likely malicious" verdict, and correctly said it had not decompiled any code. It stopped at manifest and class-name level, so the prompt must push it to read method bodies before confirming a finding. Tool names were `mcp__rea__*` because the user-level REA registration was present.
 - Open: with the user-level registration absent, confirm the plugin's own server starts and its tools are named `mcp__plugin_readroid_rea__*`.
+
+
+## Deep analysis v2: checklist, planner, investigators (added 2026-10-14)
+
+Why: a single analyst decided for itself when it was done. On `5d84311b…` it stopped after 13 tool calls and listed the manifest, a second dex, a config file and the visible classes as "unknowns" although all were readable.
+
+- **Ledger.** `ledger_init` builds a baseline checklist from the tier 1 report: manifest, entry points, network use, sensitive calls, one item per tier 1 finding, one per distinct native/embedded payload (ABI copies merged), one per small config file, and "read every class" when the dex has 60 classes or fewer. Models can add to it, never remove from it.
+- **Planner** (`apk-planner`) takes a quick look and adds 3 to 10 specific questions with `ledger_add`, only before any item is resolved.
+- **Investigators** (`apk-investigator`), one per open item, fresh context, up to 4 in parallel, started by the main session (subagents cannot start subagents). An item closes only with `ledger_resolve`: confirmed/rejected with `{where, what}` evidence, or unresolved with a blocker from a fixed list (`packed_native`, `encrypted_payload`, `needs_execution`, `tool_error`, `not_in_sample`). "Not read" is not accepted. New questions come back as leads (rounds 1 to 3, 60 items at most, extras listed as unknowns).
+- **Verdict** (`apk-verdict`) sees only the ledger and calls `scan_report`. `scan_report` refuses while any item is open, appends unresolved items to `unknowns`, and lowers the confidence the model asked for when the ledger does not support it (unreadable payload: at most 0.9, or 0.4 for `no_indicators`; any unresolved item with `no_indicators`: 0.5; tool failures: 0.7; a malicious verdict with no confirmed finding: 0.5).
+- Open question: parallel investigators each start REA/JADX work on the same APK; check memory use with 4 at once.
