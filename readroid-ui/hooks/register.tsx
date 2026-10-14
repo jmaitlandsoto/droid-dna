@@ -188,11 +188,17 @@ export const register: Register = on => {
                   {s.stage === 'triaged' && (
                     <Button key={`deep-${s.sha256}.${s.id}`} label="Deep"
                       onPress={() => {
-                        void $.prompt.submit({ text: `/readroid:scan ${s.sha256}`, asUser: true })
+                        $.ui.toast(`Deep analysis requested for ${short(s.sha256)}`)
+                        void update($, notice, () => `Deep analysis requested for ${short(s.sha256)}; Claude is working in the main conversation.`)
+                        void $.prompt.submit({
+                          text: `Run a deep READroid scan of ${s.sha256}. Follow the readroid:triage skill: call scan_triage if there is no escalated scan yet, then sample_open, spawn the readroid:apk-analyst agent with the sha256, the APK path and the tier 1 findings, call sample_close, and report the verdict from scan_list.`,
+                          asUser: true,
+                        })
                       }} />
                   )}
                   <Button key={`ask-${s.sha256}.${s.id}`} label="Ask Claude"
                     onPress={() => {
+                      $.ui.toast(`Asking Claude about ${short(s.sha256)}`)
                       void $.prompt.submit({
                         text: `Explain the READroid result for ${s.sha256} (scan ${s.id}). Use scan_list and say what was not examined.`,
                         asUser: true,
