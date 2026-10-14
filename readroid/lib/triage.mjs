@@ -79,7 +79,7 @@ const RULES = [
     test: c => (c.classCount ?? 999) < 30 ? `${c.classCount} classes` : null },
 ]
 
-export function tier1(result) {
+export function tier1(result, native) {
   const n = result.normalized_result ?? {}
   const perms = new Set(n.permissions ?? [])
   const comps = components(n.manifest?.text ?? '')
@@ -91,6 +91,10 @@ export function tier1(result) {
     if (!ev) continue
     findings.push({ rule_id: r.id, category: r.category, severity: r.severity, title: r.title, evidence: ev })
     score += r.weight
+  }
+  for (const { weight, ...f } of native?.findings ?? []) {
+    findings.push(f)
+    score += weight
   }
   score = Math.min(100, score)
   const threshold = Number(process.env.READROID_THRESHOLD ?? 30)
