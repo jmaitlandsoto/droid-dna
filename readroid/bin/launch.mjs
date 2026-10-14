@@ -4,9 +4,9 @@
 import { spawn } from 'node:child_process'
 import { ensureToolchain } from '../lib/toolchain.mjs'
 
-const [major, minor] = process.versions.node.split('.').map(Number)
-if (major < 22 || (major === 22 && minor < 19)) {
-  console.error(`[readroid] REA needs Node 22.19 or newer; this is ${process.versions.node}.`)
+const [major] = process.versions.node.split('.').map(Number)
+if (major < 18) {
+  console.error(`[readroid] Node 18 or newer is needed to bootstrap; this is ${process.versions.node}.`)
   process.exit(1)
 }
 

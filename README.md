@@ -17,7 +17,7 @@ Commands: `/readroid:scan <sha256|path>`, `/readroid:search <text>`.
 ## Requirements
 
 - Claude Code
-- Node.js 22.19+ (REA requires it)
+- Node.js 18+ (the launcher fetches Node 22 for REA itself if yours is older)
 - Network access on first run
 
 Nothing else to install: on first use a launcher downloads a JDK (checksum from Adoptium) and the JADX bridge JAR (pinned SHA-256) into `~/.readroid/tools/`, about 250 MB. The core server has no npm dependencies.
