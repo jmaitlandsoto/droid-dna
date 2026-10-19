@@ -13,7 +13,8 @@ import { readAesZip } from '../lib/aeszip.mjs'
 import { loadCatalog, saveCatalog, upsertApk, writeScan, listScans, nextScanId } from '../lib/catalog.mjs'
 import { reaInspectPackage, tier1 } from '../lib/triage.mjs'
 import { inspectApk } from '../lib/native.mjs'
-import { baseline, checkResolution, openItems, capConfidence, summarize, BLOCKERS, MAX_ROUND, MAX_ITEMS } from '../lib/ledger.mjs'
+import { diffScans } from '../lib/diff.mjs'
+import { baseline, checkResolution, openItems, capConfidence, summarize, BLOCKERS, MAX_ROUND, MAX_ITEMS, norm, leadSkipReason, overlapsBaseline } from '../lib/ledger.mjs'
 
 loadEnvFile()
 const SHA = /^[0-9a-f]{64}$/
@@ -249,24 +250,28 @@ const TOOLS = {
       if (!scan.ledger) throw new Error('No ledger yet; call ledger_init')
       if (scan.ledger.items.some(i => i.status !== 'open')) throw new Error('Investigation has started; new questions can only be added as leads when resolving an item')
       if (!Array.isArray(items) || !items.length) throw new Error('items must be a non-empty array')
-      const added = []
+      const added = [], skipped = [], overlaps = []
       for (const it of items) {
         if (typeof it?.title !== 'string' || typeof it?.question !== 'string' || it.question.trim().length < 30) throw new Error('each item needs a title and a question of at least a sentence')
         const n = scan.ledger.items.length
+        const same = scan.ledger.items.find(i => norm(i.title) === norm(it.title))
+        if (same) { skipped.push({ title: it.title.slice(0, 120), reason: `same title as ${same.id}` }); continue }
         if (n >= MAX_ITEMS) { scan.ledger.dropped.push(`${it.title} (checklist full)`); continue }
         const item = { id: `x-${n + 1}`, kind: 'planned', round: 0, title: it.title.slice(0, 120), question: it.question.slice(0, 1200), status: 'open' }
+        for (const o of overlapsBaseline(item, scan.ledger.items)) overlaps.push({ new: item.id, ...o })
         scan.ledger.items.push(item); added.push(item.id)
       }
       writeScan(scan)
-      return { added, ...summarize(scan.ledger) }
+      return { added, ...(skipped.length && { skipped }), ...(overlaps.length && { overlaps }), ...summarize(scan.ledger) }
     },
   },
   ledger_resolve: {
-    description: `Close one checklist item. The orchestrator may use status merged with mergedInto for a lead that another item already covers. status is confirmed or rejected (needs evidence entries with "where" and "what") or unresolved (needs a blocker: ${Object.keys(BLOCKERS).filter(b => b !== 'round_limit').join(', ')} and a detail). "I did not read it" is not a blocker. Put follow-up questions in leads.`,
+    description: `Close one checklist item. The orchestrator may use status merged with mergedInto for a lead that another item already covers. status is confirmed or rejected (needs evidence entries with "where" and "what") or unresolved (needs a blocker: ${Object.keys(BLOCKERS).filter(b => b !== 'round_limit').join(', ')} and a detail). "I did not read it" is not a blocker. Put follow-up questions in leads. Use remaining for what a confirmed or rejected item left unanswered. Leads from an item stopped by a tool limit, and leads that repeat an existing question, are skipped and listed in skippedLeads.`,
     inputSchema: { type: 'object', required: ['sha256', 'id', 'status', 'answer'], properties: {
       sha256: { type: 'string' }, id: { type: 'string' }, status: { type: 'string', enum: ['confirmed', 'rejected', 'unresolved', 'merged'] },
       answer: { type: 'string' }, mergedInto: { type: 'string', description: 'status merged only: id of the item that already covers this one' }, evidence: { type: 'array', items: { type: 'object', properties: { where: { type: 'string' }, what: { type: 'string' } } } },
       blocker: { type: 'string', enum: Object.keys(BLOCKERS) }, detail: { type: 'string' },
+      remaining: { type: 'string', description: 'confirmed or rejected only: the part of the question you could not answer. It is listed under unknowns; do not raise a lead for it.' },
       endpoints: { type: 'array', items: { type: 'object' } },
       leads: { type: 'array', items: { type: 'object', required: ['title', 'question'], properties: { title: { type: 'string' }, question: { type: 'string' } } } },
     } },
@@ -281,17 +286,17 @@ const TOOLS = {
       else if (a.status === 'merged') item.mergedInto = a.mergedInto
       else item.evidence = a.evidence.slice(0, 20)
       if (Array.isArray(a.endpoints) && a.endpoints.length) item.endpoints = a.endpoints.slice(0, 20)
-      const added = []
+      if (typeof a.remaining === 'string' && a.remaining.trim() && a.status !== 'unresolved' && a.status !== 'merged') item.remaining = a.remaining.slice(0, 500)
+      const added = [], skippedLeads = []
       for (const l of Array.isArray(a.leads) ? a.leads : []) {
-        if (typeof l?.title !== 'string' || typeof l?.question !== 'string' || l.question.trim().length < 30) continue
-        const norm = t => t.toLowerCase().replace(/\W+/g, ' ').trim()
-        if (scan.ledger.items.some(i => norm(i.title) === norm(l.title))) continue
+        const why = leadSkipReason(item, l, scan.ledger.items)
+        if (why) { skippedLeads.push({ title: String(l?.title ?? '').slice(0, 120), reason: why }); continue }
         if (item.round + 1 > MAX_ROUND || scan.ledger.items.length >= MAX_ITEMS) { scan.ledger.dropped.push(`${l.title} (from ${item.id}; ${item.round + 1 > MAX_ROUND ? 'round limit' : 'checklist full'})`); continue }
         const lead = { id: `l-${scan.ledger.items.length + 1}`, kind: 'lead', round: item.round + 1, parent: item.id, title: l.title.slice(0, 120), question: l.question.slice(0, 1200), status: 'open' }
         scan.ledger.items.push(lead); added.push(lead.id)
       }
       writeScan(scan)
-      return { recorded: item.id, newLeads: added, ...summarize(scan.ledger) }
+      return { recorded: item.id, newLeads: added, ...(skippedLeads.length && { skippedLeads }), ...summarize(scan.ledger) }
     },
   },
   ledger_close_out: {
@@ -350,15 +355,18 @@ const TOOLS = {
         confidence = cap.confidence
         if (cap.capped) capNote = `confidence lowered from ${a.confidence} to ${confidence}: ${cap.reasons.join('; ')}`
         for (const i of scan.ledger.items.filter(x => x.status === 'unresolved')) unknowns.push(`${i.title}: ${i.blocker} - ${i.detail}`)
+        for (const i of scan.ledger.items.filter(x => x.remaining)) unknowns.push(`${i.title}: not answered - ${i.remaining}`)
         for (const d of scan.ledger.dropped) unknowns.push(`Lead not followed: ${d}`)
       }
       Object.assign(scan, {
-        stage: 'done', verdict: a.verdict, confidence, categories: a.categories ?? [], summary: a.summary,
+        stage: 'done', verdict: a.verdict, confidence, ...(capNote && { confidenceRequested: a.confidence, confidenceNote: capNote }), categories: a.categories ?? [], summary: a.summary,
         findings: a.findings, endpoints: a.endpoints ?? [], unknowns, native: a.native ?? [], finishedAt: new Date().toISOString(), verdictBy: 'analyst',
         ...(scan.ledger && { ledgerSummary: summarize(scan.ledger) }),
       })
+      const previous = listScans(a.sha256).find(x => x.id !== scan.id && x.stage === 'done')
+      if (previous) scan.delta = diffScans(previous, scan)
       writeScan(scan)
-      return { recorded: true, scanId: scan.id, verdict: a.verdict, confidence, ...(capNote && { note: capNote }) }
+      return { recorded: true, scanId: scan.id, ...(scan.delta && { delta: scan.delta }), verdict: a.verdict, confidence, ...(capNote && { note: capNote }) }
     },
   },
   scan_list: {

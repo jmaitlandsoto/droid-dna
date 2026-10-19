@@ -63,6 +63,7 @@ const refresh = async ($: any) => {
       stage: s.stage,
       verdict: s.verdict ?? null,
       confidence: s.confidence ?? null,
+      confidenceRequested: s.confidenceRequested ?? null,
       score: s.score ?? null,
       escalate: s.escalate ?? null,
       summary: s.summary ?? null,
@@ -184,7 +185,7 @@ export const register: Register = on => {
                   <Text color={s.verdict === 'malicious' ? 'red' : s.stage === 'error' ? 'red' : 'white'}>
                     {s.verdict ?? s.stage}
                   </Text>
-                  <Text dimColor> {s.confidence !== null ? `conf ${s.confidence} ` : ''}{s.score !== null ? `score ${s.score} ` : ''}</Text>
+                  <Text dimColor> {s.confidence !== null ? `conf ${s.confidence}${s.confidenceRequested !== null ? ` (lowered from ${s.confidenceRequested})` : ''} ` : ''}{s.score !== null ? `score ${s.score} ` : ''}</Text>
                   {(s.stage === 'triaged' || (s.verdict === 'inconclusive' && s.escalate)) && (
                     <Button key={`deep-${s.sha256}.${s.id}`} label={s.stage === 'triaged' ? 'Deep' : 'Retry deep'}
                       onPress={() => {

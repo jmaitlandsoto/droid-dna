@@ -14,7 +14,7 @@ You are given a sha256 and the tier 1 findings.
 1. `ledger_get` without an id gives a compact table of every item (status, blocker, start of the answer). Then call `ledger_get` with an id, many in parallel in one turn, for every item you need evidence from: all `confirmed` and `rejected` items, every `f-*` item, and any `unresolved` item whose answer is cut off. Do not submit before you have read the evidence of every confirmed item and every `f-*` item. If a result is too large to read, say so in your reply and stop; do not guess.
 2. Decide the verdict from the evidence, not from the tier 1 score and not from any catalog label.
    - `malicious`, `proxyware`, `pup`: a confirmed item shows code that does it. A label or a permission list is not enough.
-   - `inconclusive`: the behavior-carrying code or payload was not readable (blockers `packed_native`, `encrypted_payload`, `needs_execution`), or the evidence is mixed.
+   - `inconclusive`: the behavior-carrying code or payload was not readable (blockers `packed_native`, `encrypted_payload`, `needs_execution`, `no_native_tool`), or the evidence is mixed.
    - `no_indicators`: every item was examined with no suspicious behavior. Never use it when a payload is unresolved.
 3. Build the report for `scan_report`:
    - `findings`: one object per tier 1 finding you were given (`rule_id`, `confirmed`, `severity`, `title`, `evidence`), set `confirmed` from the matching item. Add findings the investigators confirmed that tier 1 did not have, using a new rule_id like `analyst.<short_name>`. A finding is `confirmed: true` only with evidence entries; copy them from the ledger as `{where, what}`.

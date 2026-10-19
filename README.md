@@ -46,3 +46,9 @@ readroid/                plugin: bin/ launcher, core/ MCP server, lib/, agents/,
 READroid Design v2.md    design
 ref/                     original design doc
 ```
+
+## Known issues
+
+- The plugin starts its own REA server (tools named `mcp__plugin_readroid_rea__*`) with the JDK and JADX jar it provisions. If you also have a separate user-level MCP server named `rea` (`mcp__rea__*`), it will not have `REA_JADX_MCP_JAR` and its decompile tools fail with a missing-jar error. Remove it (`claude mcp remove rea`) or set that variable for it. The agents prefer the plugin's tools.
+- apktool is not provisioned, so decoded resource XML (for example an accessibility service's config flags) may be unreadable.
+- Native payloads are only inspected through `sample_inspect_native` (headers, imports and a sample of strings). Questions that need disassembly end `unresolved` with blocker `no_native_tool`, which lowers the verdict's confidence.

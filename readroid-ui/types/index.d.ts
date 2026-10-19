@@ -12,6 +12,7 @@ export type ScanRow = {
   stage: string
   verdict: string | null
   confidence: number | null
+  confidenceRequested: number | null
   score: number | null
   escalate: boolean | null
   summary: string | null

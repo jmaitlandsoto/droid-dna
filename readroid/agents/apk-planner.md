@@ -25,4 +25,4 @@ Good items are specific:
 
 Ask about: every component the manifest names that the dex lacks; every native or embedded payload and its loader; every `native` method you can see; every unusual permission combination and the code that would use it; every distinctive string or class that looks like a decryptor, dispatcher or updater; every related-sample hit.
 
-Do not add generic items; the baseline covers the manifest, entry points, network use and sensitive calls. Do not add an item you have already answered yourself. When you are done, reply with the list of ids you added and one line on why.
+Do not add generic items, and do not add an item about a component, class or file that a baseline `f-*`, `c-*` or `p-*` item already names (call `ledger_get` first; `ledger_add` reports `overlaps` and `skipped` so check its reply). The baseline covers the manifest, entry points, network use and sensitive calls. Do not add an item you have already answered yourself. When you are done, reply with the list of ids you added and one line on why.

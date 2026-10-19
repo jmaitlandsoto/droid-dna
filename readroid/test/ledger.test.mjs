@@ -63,7 +63,7 @@ test('baseline, gate, validation, leads, caps', async () => {
     // lead chain to the round limit
     let cur = lead
     for (let r = 1; r <= 3; r++) {
-      const out = JSON.parse((await s.call('ledger_resolve', { id: cur, status: 'confirmed', answer: ans, evidence: ev, leads: [{ title: `Deeper ${r}`, question: 'Keep following the chain of calls into the next class.' }] })).body)
+      const out = JSON.parse((await s.call('ledger_resolve', { id: cur, status: 'confirmed', answer: ans, evidence: ev, leads: [{ title: `Deeper ${r}`, question: ['Trace the receiver registration handlers.', 'Decode the asset decryption routine parameters.', 'Compare the scheduled alarm intervals.'][r - 1] + ' Name the class and the method that you read.' }] })).body)
       cur = out.newLeads[0]
     }
     assert.equal(cur, undefined, 'round 4 lead is dropped')
@@ -87,4 +87,17 @@ test('close_out refuses while early rounds are open and a verdict needs a confir
     await s.call('ledger_init', {})
     assert.match((await s.call('ledger_close_out', {})).body, /investigate them first/)
   } finally { s.stop() }
+})
+
+test('baseline: identical files are one item, ids are unique, long paths are shortened', async () => {
+  const { baseline } = await import('../lib/ledger.mjs')
+  const same = n => ({ path: `assets/dir/${'Ы¦x'.repeat(60)}${n}.bin`, sha256: 'a'.repeat(64), kind: 'binary', sizeBytes: 9000, entropy: 8 })
+  const many = Array.from({ length: 20 }, (_, i) => ({ path: `assets/m/${i}.bin`, sha256: String(i).padStart(2, '0').repeat(32), kind: 'binary', sizeBytes: 9000, entropy: 8 }))
+  const items = baseline({ tier1: { classCount: 999, findings: [] }, native: { files: [...Array.from({ length: 14 }, (_, i) => same(i)), ...many] } })
+  const ids = items.map(i => i.id)
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique')
+  assert.equal(items.filter(i => i.title.includes('identical')).length, 1)
+  assert.ok(items.every(i => i.title.length < 130))
+  assert.ok(ids.includes('m-more'), 'extra files are grouped, not dropped')
+  assert.ok(items.filter(i => i.id.startsWith('p-')).length <= 15)
 })
