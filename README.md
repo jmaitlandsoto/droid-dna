@@ -1,54 +1,57 @@
-# READroid
+# droid-dna
 
-APK malware triage for Claude Code. Cheap static checks run first; Claude investigates only what they cannot clear, using the [REA](https://www.npmjs.com/package/rea-agents) reverse-engineering MCP server. Verdicts are evidence-backed and say "no indicators found", never "safe".
+APK malware triage for Claude Code, run straight from this repo. Cheap static checks run first; Claude investigates only what they cannot clear, using the [REA](https://www.npmjs.com/package/rea-agents) reverse-engineering MCP server. Verdicts are evidence-backed and say "no indicators found", never "safe".
 
-**Status: early development.** `/readroid:scan` works end to end on one platform (Linux x64): fetch or import, static triage, escalation to a team of read-only agents (a planner, parallel investigators and a verdict writer, working from a checklist the server enforces), and a structured verdict. See `READroid Design v2.md` for the plan.
+**Status: early development.** `/scan` works end to end on one platform (Linux x64): fetch or import, static triage, escalation to a team of read-only agents (a planner, parallel investigators and a verdict writer, working from a checklist the server enforces), and a structured verdict. See `docs/droid-dna-design.md` for the plan.
 
-Commands: `/readroid:scan <sha256|path>`, `/readroid:search <text>`.
-
-## Install
+## Get started
 
 ```
-/plugin install readroid --marketplace <owner>/<repo>
+git clone <this repo> && cd droid-dna
+npm run setup      # or: npx droid-dna setup
+npm run claude     # Claude Code with the pane; plain `claude` works too, minus the pane
 ```
 
-(Replace `<owner>/<repo>` with this repository once it is published.)
+Approve the project MCP servers (`core`, `rea`) when Claude Code asks, then:
+
+- `/scan <sha256|path>` scans a sample
+- `/search <text>` searches the local catalog
+- `/droid-dna` opens the pane (Library and Results tabs; search, Scan, Deep, Ask Claude)
+
+Everything the tool needs is in the repo: `CLAUDE.md` for the rules, `.mcp.json` for the servers, `.claude/` for the skill, agents and commands.
 
 ## Requirements
 
 - Claude Code
-- Node.js 18+ (the launcher fetches Node 22 for REA itself if yours is older)
-- Network access on first run
+- Node.js 18+ (setup fetches Node 22 for REA itself if yours is older)
+- Network access during setup
 
-Nothing else to install: on first use a launcher downloads a JDK (checksum from Adoptium) and the JADX bridge JAR (pinned SHA-256) into `~/.readroid/tools/`, about 250 MB. The core server has no npm dependencies.
-
-## Optional: the pane (mod)
-
-`readroid-ui/` is a Claude Code mod that adds `/readroid`, a pane with Library and Results tabs (search, Scan, Deep, Ask Claude). It calls the plugin's tools, so install the plugin first. Try it with `claude --plugin-dir ./readroid-ui`.
+`npm run setup` downloads a JDK (checksum from Adoptium) and the JADX bridge JAR (pinned SHA-256) into `~/.droid-dna/tools/`, about 250 MB, and creates `~/.droid-dna/.env`. `npm run check` reports what is missing without changing anything. If you used this project before the rename, setup moves `~/.readroid` to `~/.droid-dna`; `READROID_HOME` is now `DROID_DNA_HOME`.
 
 ## Optional: MalwareBazaar key
 
-To fetch known-malware samples, put a free [abuse.ch](https://auth.abuse.ch/) key in `~/.readroid/.env` (see `.env.example`). Keep it outside any repository.
+To fetch known-malware samples, put a free [abuse.ch](https://auth.abuse.ch/) key in `~/.droid-dna/.env` (see `.env.example`). Keep it outside any repository.
 
 ## Safety
 
 - Static analysis only. Nothing is installed or executed.
-- The agents can use only read-only Android tools from REA, listed one by one. REA also exposes adb install, Frida and debugger tools, which the agent cannot call.
+- The agents can use only read-only Android tools from REA, listed one by one. REA also exposes adb install, Frida and debugger tools, which the agents cannot call.
 - Everything inside a sample is treated as data, never as instructions.
-- Samples stay in encrypted zips under `~/.readroid/samples/`. This repository never contains samples.
+- Samples stay in encrypted zips under `~/.droid-dna/samples/`. This repository never contains samples.
 
 ## Layout
 
 ```
-readroid-ui/             optional pane mod
-readroid/                plugin: bin/ launcher, core/ MCP server, lib/, agents/, commands/, skills/
-.claude-plugin/          marketplace manifest
-READroid Design v2.md    design
-ref/                     original design doc
+CLAUDE.md                 rules and orientation for Claude
+.mcp.json                 core + rea MCP servers
+.claude/                  skills/triage, agents/, commands/
+droid-dna/                bin/ (setup, REA launcher), core/ (MCP server), lib/, test/
+droid-dna-ui/             optional pane mod
+docs/                     design doc and the original reference
 ```
 
 ## Known issues
 
-- The plugin starts its own REA server (tools named `mcp__plugin_readroid_rea__*`) with the JDK and JADX jar it provisions. If you also have a separate user-level MCP server named `rea` (`mcp__rea__*`), it will not have `REA_JADX_MCP_JAR` and its decompile tools fail with a missing-jar error. Remove it (`claude mcp remove rea`) or set that variable for it. The agents prefer the plugin's tools.
+- If you also have a user-level MCP server named `rea`, it can shadow the project's and lacks `REA_JADX_MCP_JAR`, so decompile tools fail. `npm run setup` warns about it; remove it with `claude mcp remove rea -s user`.
 - apktool is not provisioned, so decoded resource XML (for example an accessibility service's config flags) may be unreadable.
 - Native payloads are only inspected through `sample_inspect_native` (headers, imports and a sample of strings). Questions that need disassembly end `unresolved` with blocker `no_native_tool`, which lowers the verdict's confidence.

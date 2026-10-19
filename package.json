@@ -1,0 +1,16 @@
+{
+  "name": "droid-dna",
+  "version": "0.1.0",
+  "description": "Evidence-backed APK malware triage for Claude Code: the repo is the tool.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "bin": { "droid-dna": "./droid-dna/bin/setup.mjs" },
+  "scripts": {
+    "setup": "node droid-dna/bin/setup.mjs",
+    "claude": "claude --plugin-dir ./droid-dna-ui",
+    "check": "node droid-dna/bin/setup.mjs --check",
+    "test": "node --test droid-dna/test/"
+  },
+  "engines": { "node": ">=18" }
+}

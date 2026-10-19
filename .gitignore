@@ -10,7 +10,7 @@
 *.zip
 *.jar
 samples/
-.readroid/
+.droid-dna/
 
 # tooling
 node_modules/

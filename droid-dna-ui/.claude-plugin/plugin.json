@@ -1,0 +1,6 @@
+{
+  "name": "droid-dna-ui",
+  "version": "0.1.0",
+  "description": "droid-dna pane: browse the sample catalog, scan APKs and read verdicts.",
+  "types": "./types/index.d.ts"
+}
