@@ -118,6 +118,24 @@ export function baseline(report) {
   return items
 }
 
+// Ledgers stored by older builds can hold repeated ids, and lookups by id reach only the first. Keep the first
+// of each id, suffix the rest (-2, -3, ...). Returns true when anything changed.
+export function uniqueIds(items) {
+  const used = new Set()
+  let changed = false
+  for (const it of items) {
+    if (used.has(it.id)) {
+      const id = it.id
+      let k = 2
+      while (used.has(`${id}-${k}`) || items.some(o => o !== it && o.id === `${id}-${k}`)) k++
+      it.id = `${id}-${k}`
+      changed = true
+    }
+    used.add(it.id)
+  }
+  return changed
+}
+
 // Checks one resolution. Returns an error string or null.
 export function checkResolution(item, r, items = []) {
   if (!item) return 'Unknown item id'

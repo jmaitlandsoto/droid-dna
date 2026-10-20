@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // One-time setup: provisions the toolchain and the config dir.
 // Usage: node droid-dna/bin/setup.mjs [--check]
+import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -49,5 +50,42 @@ try {
   if (cfg.mcpServers?.rea) say('  warning  a user-level `rea` MCP server exists; remove it with `claude mcp remove rea -s user` so the project one is used')
 } catch {}
 
-say(problems ? `\n${problems} item(s) outstanding. Run: npm run setup` : '\nDone. Run `npm run claude` in this folder (Claude Code plus the droid-dna pane), approve the project MCP servers, then /scan <sha256|path>.')
+// The pane is a Claude Code plugin served from this repo's own marketplace, enabled at project scope
+// (.claude/settings.json) so plain `claude` in this folder has /droid-dna with no flags.
+const claude = (...args) => spawnSync('claude', args, { cwd: root, encoding: 'utf8' })
+const PLUGIN = 'droid-dna-ui', MARKET = 'droid-dna'
+const hasClaude = claude('--version').status === 0
+if (!hasClaude) {
+  todo('Claude Code (install it, then run setup again): https://docs.claude.com/en/docs/claude-code')
+} else {
+  let installed = false
+  try { installed = JSON.parse(claude('plugin', 'list', '--json').stdout).some(p => p.id === `${PLUGIN}@${MARKET}` && p.scope === 'project') } catch {}
+  if (installed) ok(`Claude Code plugin ${PLUGIN} (project scope)`)
+  else if (check) todo(`Claude Code plugin ${PLUGIN} (installed on setup)`)
+  else {
+    // A marketplace already registered for this folder under another name (the pre-rename `readroid`)
+    // would swallow the add and then not contain the plugin, so drop it first.
+    try {
+      for (const m of JSON.parse(claude('plugin', 'marketplace', 'list', '--json').stdout))
+        if (m.path === root && m.name !== MARKET) {
+          claude('plugin', 'marketplace', 'remove', m.name)
+          ok(`removed stale marketplace ${m.name} for this folder`)
+        }
+    } catch {}
+    const steps = [
+      ['plugin', 'marketplace', 'add', root, '--scope', 'project'],
+      ['plugin', 'install', `${PLUGIN}@${MARKET}`, '--scope', 'project'],
+    ]
+    for (const step of steps) {
+      const r = claude(...step)
+      if (r.status !== 0) {
+        todo(`Claude Code plugin ${PLUGIN}: \`claude ${step.join(' ')}\` failed: ${(r.stderr || r.stdout).trim().split('\n')[0]}`)
+        break
+      }
+    }
+    if (!problems) ok(`Claude Code plugin ${PLUGIN} (project scope)`)
+  }
+}
+
+say(problems ? `\n${problems} item(s) outstanding. Run: npm run setup` : '\nDone. Run `claude` in this folder, approve the project MCP servers and plugin, then /droid-dna or /scan <sha256|path>.')
 process.exit(check && problems ? 1 : 0)

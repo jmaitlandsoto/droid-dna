@@ -101,3 +101,32 @@ test('baseline: identical files are one item, ids are unique, long paths are sho
   assert.ok(ids.includes('m-more'), 'extra files are grouped, not dropped')
   assert.ok(items.filter(i => i.id.startsWith('p-')).length <= 15)
 })
+
+test('scan_get returns findings that scan_list leaves out, and a summarized ledger', async () => {
+  const s = start()
+  try {
+    await s.call('ledger_init', {})
+    const got = JSON.parse((await s.call('scan_get', {})).body)
+    assert.equal(got.id, 1)
+    assert.ok(Array.isArray(got.findings))
+    assert.equal(typeof got.ledger.total, 'number')
+    assert.equal(got.ledger.items, undefined)
+    assert.match((await s.call('scan_get', { id: 99 })).body, /No such scan/)
+  } finally { s.stop() }
+})
+
+test('identical files are one payload item; stored duplicate ids are made unique', async () => {
+  const { baseline, uniqueIds } = await import('../lib/ledger.mjs')
+  const files = Array.from({ length: 13 }, (_, i) => ({ path: `assets/dir/f${i}.bin`, sha256: '3'.repeat(64), kind: 'binary', sizeBytes: 1048576, entropy: 0 }))
+  const items = baseline({ tier1: { classCount: 99, findings: [] }, native: { files } })
+  const p = items.filter(i => i.id.startsWith('p-'))
+  assert.equal(p.length, 1)
+  assert.match(p[0].title, /\+12 identical/)
+
+  const stored = [{ id: 'p-33333333', status: 'rejected' }, ...Array.from({ length: 13 }, () => ({ id: 'p-33333333', status: 'open' })), { id: 'p-33333333-2', status: 'open' }]
+  assert.equal(uniqueIds(stored), true)
+  assert.equal(new Set(stored.map(i => i.id)).size, stored.length)
+  assert.equal(stored[0].id, 'p-33333333')
+  assert.equal(stored[0].status, 'rejected')
+  assert.equal(uniqueIds(stored), false, 'idempotent')
+})

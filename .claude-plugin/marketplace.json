@@ -1,0 +1,11 @@
+{
+  "name": "droid-dna",
+  "owner": { "name": "droid-dna" },
+  "plugins": [
+    {
+      "name": "droid-dna-ui",
+      "source": "./droid-dna-ui",
+      "description": "droid-dna pane: scan APKs from the device or the MalwareBazaar library and read verdicts."
+    }
+  ]
+}

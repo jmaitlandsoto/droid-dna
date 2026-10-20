@@ -8,7 +8,6 @@
   "bin": { "droid-dna": "./droid-dna/bin/setup.mjs" },
   "scripts": {
     "setup": "node droid-dna/bin/setup.mjs",
-    "claude": "claude --plugin-dir ./droid-dna-ui",
     "check": "node droid-dna/bin/setup.mjs --check",
     "test": "node --test droid-dna/test/"
   },

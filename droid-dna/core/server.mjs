@@ -14,7 +14,7 @@ import { loadCatalog, saveCatalog, upsertApk, writeScan, listScans, nextScanId }
 import { reaInspectPackage, tier1 } from '../lib/triage.mjs'
 import { inspectApk } from '../lib/native.mjs'
 import { diffScans } from '../lib/diff.mjs'
-import { baseline, checkResolution, openItems, capConfidence, summarize, BLOCKERS, MAX_ROUND, MAX_ITEMS, norm, leadSkipReason, overlapsBaseline } from '../lib/ledger.mjs'
+import { baseline, uniqueIds, checkResolution, openItems, capConfidence, summarize, BLOCKERS, MAX_ROUND, MAX_ITEMS, norm, leadSkipReason, overlapsBaseline } from '../lib/ledger.mjs'
 
 loadEnvFile()
 const SHA = /^[0-9a-f]{64}$/
@@ -66,6 +66,7 @@ function latestScan(sha) {
   entryOrThrow(loadCatalog(), sha)
   const scan = listScans(sha)[0]
   if (!scan) throw new Error('No scan for this sample; run scan_triage first')
+  if (scan.ledger && uniqueIds(scan.ledger.items)) writeScan(scan)
   return scan
 }
 
@@ -278,6 +279,7 @@ const TOOLS = {
     async run(a) {
       const scan = latestScan(a.sha256)
       if (!scan.ledger) throw new Error('No ledger yet; call ledger_init')
+      if (scan.ledger.items.filter(i => i.id === a.id).length > 1) throw new Error(`Item id ${a.id} is ambiguous`)
       const item = scan.ledger.items.find(i => i.id === a.id)
       const err = checkResolution(item, a, scan.ledger.items)
       if (err) throw new Error(err)
@@ -374,6 +376,17 @@ const TOOLS = {
     inputSchema: { type: 'object', properties: { sha256: { type: 'string' } } },
     async run({ sha256: sha }) {
       return listScans(sha).slice(0, 50).map(({ findings, ledger, ...s }) => ({ ...s, findingCount: findings?.length ?? 0, ...(ledger && { ledger: summarize(ledger) }) }))
+    },
+  },
+  scan_get: {
+    description: 'Read one scan in full, findings and evidence included (scan_list leaves findings out). Latest scan of the sample unless id is given. The checklist is summarized; use ledger_get for its items.',
+    inputSchema: { type: 'object', required: ['sha256'], properties: { sha256: { type: 'string' }, id: { type: 'integer' } } },
+    async run({ sha256: sha, id }) {
+      entryOrThrow(loadCatalog(), sha)
+      const scan = id === undefined ? listScans(sha)[0] : listScans(sha).find(s => s.id === id)
+      if (!scan) throw new Error('No such scan; run scan_triage first')
+      const { ledger, ...rest } = scan
+      return { ...rest, findings: scan.findings ?? [], ...(ledger && { ledger: summarize(ledger) }) }
     },
   },
 }

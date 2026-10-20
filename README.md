@@ -9,14 +9,14 @@ APK malware triage for Claude Code, run straight from this repo. Cheap static ch
 ```
 git clone <this repo> && cd droid-dna
 npm run setup      # or: npx droid-dna setup
-npm run claude     # Claude Code with the pane; plain `claude` works too, minus the pane
+claude
 ```
 
-Approve the project MCP servers (`core`, `rea`) when Claude Code asks, then:
+Setup provisions the toolchain and, if Claude Code is installed, enables the `droid-dna-ui` plugin (the pane) at project scope in `.claude/settings.json`. If Claude Code is missing it says so; install it and run setup again. Approve the project MCP servers (`core`, `rea`) and the plugin when Claude Code asks, then:
 
 - `/scan <sha256|path>` scans a sample
 - `/search <text>` searches the local catalog
-- `/droid-dna` opens the pane (Library and Results tabs; search, Scan, Deep, Ask Claude)
+- `/droid-dna` opens the pane (Start and Job History tabs; From device, MalwareBazaar library, Scan, job details with Deep and Ask Claude)
 
 Everything the tool needs is in the repo: `CLAUDE.md` for the rules, `.mcp.json` for the servers, `.claude/` for the skill, agents and commands.
 

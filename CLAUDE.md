@@ -2,7 +2,7 @@
 
 APK malware triage, run from this repo. Cheap static checks run first; Claude investigates only what they cannot clear, using the REA (`rea-agents`) reverse-engineering MCP server. Verdicts are evidence-backed and say "no indicators found", never "safe".
 
-This repo is the tool: Claude Code opened here has the servers, agents, skills and commands it needs. One-time setup: `npm run setup` (provisions Node 22, JDK 21 and the JADX bridge jar under `~/.droid-dna/tools/`). `npm run claude` starts Claude Code with the optional pane (`/droid-dna`).
+This repo is the tool: Claude Code opened here has the servers, agents, skills and commands it needs. One-time setup: `npm run setup` (provisions Node 22, JDK 21 and the JADX bridge jar under `~/.droid-dna/tools/`). Setup also enables the `droid-dna-ui` plugin at project scope (`.claude-plugin/marketplace.json` is its local marketplace), so plain `claude` has the pane (`/droid-dna`).
 
 ## How to use it
 - `/scan <sha256|path>`: fetch or import a sample, run static triage, and escalate to deep analysis when triage cannot clear it. Follow the `triage` skill exactly; do not improvise another way to analyze an APK.
@@ -13,7 +13,7 @@ This repo is the tool: Claude Code opened here has the servers, agents, skills a
 - `.claude/skills/triage`: the scan procedure.
 - `.claude/agents/`: `apk-planner` (adds checklist questions), `apk-investigator` (closes one item with evidence), `apk-verdict` (writes the verdict from the closed checklist). Each lists its allowed tools one by one; keep them read-only.
 - `droid-dna/lib/`: catalog, triage, ledger, native inspection, diffing, encrypted-zip handling.
-- `droid-dna-ui/`: optional Claude Code mod (pane with Library and Results tabs).
+- `droid-dna-ui/`: optional Claude Code mod (pane with Start and Job History tabs, MalwareBazaar library, device-browser and job-detail pages).
 - `docs/droid-dna-design.md`: the design; `docs/ref/`: the original design doc.
 - Tests: `npm test`.
 
